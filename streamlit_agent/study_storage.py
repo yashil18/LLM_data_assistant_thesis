@@ -11,6 +11,7 @@ from functools import lru_cache
 
 import pandas as pd
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 
 DEFAULT_STUDY_DATABASE_URL = "sqlite:///interactions.db"
@@ -92,83 +93,92 @@ def _ensure_columns(engine, table_name, required_columns):
             )
 
 
+def _execute_schema_statement(engine, sql, table_to_verify=None):
+    """Run DDL safely when cloud deployment starts more than one app worker."""
+    try:
+        with engine.begin() as connection:
+            connection.execute(text(sql))
+    except (IntegrityError, ProgrammingError):
+        if table_to_verify and table_to_verify in inspect(engine).get_table_names():
+            return
+        raise
+
+
 def initialize_interactions_database():
     engine = get_study_engine()
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS interactions (
-                    session_id TEXT,
-                    id INTEGER,
-                    participant_id TEXT,
-                    treatment TEXT,
-                    assistant_version TEXT,
-                    user_query TEXT,
-                    assistant_response TEXT,
-                    intermediate_steps TEXT,
-                    simplified_intermediate_steps TEXT,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    user_query_sent_time TIMESTAMP,
-                    response_displayed_time TIMESTAMP,
-                    explanation_button_displayed_time TIMESTAMP,
-                    explanation_clicked_time TIMESTAMP,
-                    explanation_clicked BOOLEAN DEFAULT FALSE,
-                    explanation_displayed_time TIMESTAMP
-                )
-                """
-            )
+    _execute_schema_statement(
+        engine,
+        """
+        CREATE TABLE IF NOT EXISTS interactions (
+            session_id TEXT,
+            id INTEGER,
+            participant_id TEXT,
+            treatment TEXT,
+            assistant_version TEXT,
+            user_query TEXT,
+            assistant_response TEXT,
+            intermediate_steps TEXT,
+            simplified_intermediate_steps TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            user_query_sent_time TIMESTAMP,
+            response_displayed_time TIMESTAMP,
+            explanation_button_displayed_time TIMESTAMP,
+            explanation_clicked_time TIMESTAMP,
+            explanation_clicked BOOLEAN DEFAULT FALSE,
+            explanation_displayed_time TIMESTAMP
         )
-        connection.execute(
-            text(
-                """
-                CREATE INDEX IF NOT EXISTS idx_interactions_session_question
-                ON interactions (session_id, id)
-                """
-            )
-        )
+        """,
+        table_to_verify="interactions",
+    )
+    _execute_schema_statement(
+        engine,
+        """
+        CREATE INDEX IF NOT EXISTS idx_interactions_session_question
+        ON interactions (session_id, id)
+        """,
+        table_to_verify="interactions",
+    )
     _ensure_columns(engine, "interactions", INTERACTION_COLUMNS)
 
 
 def initialize_questionnaire_database():
     engine = get_study_engine()
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS study_sessions (
-                    session_id TEXT PRIMARY KEY,
-                    participant_id TEXT NOT NULL,
-                    assistant_version TEXT NOT NULL,
-                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    pre_completed_at TIMESTAMP,
-                    tasks_completed_at TIMESTAMP,
-                    post_completed_at TIMESTAMP,
-                    consent_given INTEGER,
-                    consent_version TEXT,
-                    consent_timestamp TIMESTAMP
-                )
-                """
-            )
+    _execute_schema_statement(
+        engine,
+        """
+        CREATE TABLE IF NOT EXISTS study_sessions (
+            session_id TEXT PRIMARY KEY,
+            participant_id TEXT NOT NULL,
+            assistant_version TEXT NOT NULL,
+            started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            pre_completed_at TIMESTAMP,
+            tasks_completed_at TIMESTAMP,
+            post_completed_at TIMESTAMP,
+            consent_given INTEGER,
+            consent_version TEXT,
+            consent_timestamp TIMESTAMP
         )
-        connection.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS questionnaire_responses (
-                    session_id TEXT NOT NULL,
-                    participant_id TEXT NOT NULL,
-                    assistant_version TEXT NOT NULL,
-                    phase TEXT NOT NULL,
-                    question_id TEXT NOT NULL,
-                    construct TEXT NOT NULL,
-                    response_numeric REAL,
-                    response_text TEXT,
-                    submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (session_id, phase, question_id)
-                )
-                """
-            )
+        """,
+        table_to_verify="study_sessions",
+    )
+    _execute_schema_statement(
+        engine,
+        """
+        CREATE TABLE IF NOT EXISTS questionnaire_responses (
+            session_id TEXT NOT NULL,
+            participant_id TEXT NOT NULL,
+            assistant_version TEXT NOT NULL,
+            phase TEXT NOT NULL,
+            question_id TEXT NOT NULL,
+            construct TEXT NOT NULL,
+            response_numeric REAL,
+            response_text TEXT,
+            submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (session_id, phase, question_id)
         )
+        """,
+        table_to_verify="questionnaire_responses",
+    )
     _ensure_columns(engine, "study_sessions", STUDY_SESSION_COLUMNS)
 
 
