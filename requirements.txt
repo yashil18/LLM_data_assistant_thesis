@@ -1,0 +1,12 @@
+streamlit>=1.20.0
+pandas
+openai
+openpyxl
+psycopg2-binary
+python-dotenv
+langchain-core
+langchain-openai
+langchain-community
+sqlalchemy
+tiktoken
+altair<5

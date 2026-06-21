@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Local secrets and participant data
+.streamlit/secrets.toml
+interactions.db
+analysis_outputs/
+
+# Local editor/system files
+.vscode/
+.DS_Store
+Thumbs.db
