@@ -48,12 +48,12 @@ import uuid
 import openai
 from study_questionnaire import (
     apply_soft_theme,
-    render_assigned_tasks_guide,
     render_dataset_viewer,
     render_guided_exploration_guide,
     render_questionnaire_flow,
     render_study_progress_footer,
 )
+from study_task_guide import render_assigned_tasks_guide
 from study_storage import (
     initialize_interactions_database,
     insert_interaction,
