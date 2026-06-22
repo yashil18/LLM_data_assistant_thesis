@@ -48,6 +48,7 @@ import uuid
 import openai
 from study_questionnaire import (
     apply_soft_theme,
+    render_assigned_tasks_guide,
     render_dataset_viewer,
     render_guided_exploration_guide,
     render_questionnaire_flow,
@@ -123,8 +124,8 @@ def update_explanation_clicked(session_id, interaction_id):
 st.set_page_config(page_title="Data Assistant")
 apply_soft_theme()
 st.title("Data Assistant 📈")
-st.caption("Version A: Baseline assistant")
-st.info("This version answers questions using the database schema and SQL reasoning.")
+st.caption("Version A")
+st.info("Use this assistant to answer questions about the Superstore dataset.")
 
 # Assign a unique session ID if it doesn't exist
 if "session_id" not in st.session_state:
@@ -146,6 +147,7 @@ render_questionnaire_flow(
 )
 participant_id = st.session_state["participant_id"]
 st.caption("Use the assistant to complete the data-analysis tasks provided by the researcher.")
+render_assigned_tasks_guide()
 render_dataset_viewer()
 render_guided_exploration_guide()
 
