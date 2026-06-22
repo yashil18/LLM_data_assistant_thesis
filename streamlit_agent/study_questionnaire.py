@@ -124,52 +124,70 @@ def _apply_action_button_styles():
             font-size: 0.88rem;
             font-weight: 800;
             letter-spacing: 0.02rem;
-            margin-bottom: 0.55rem;
+            margin-bottom: 0.85rem;
             text-transform: uppercase;
         }
-        .animated-question {
+        .animated-question-stack {
+            display: grid;
+            gap: 0.7rem;
+            margin-bottom: 1rem;
+        }
+        .animated-question-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.45rem;
             color: #f8fafc;
             font-size: 1.02rem;
-            line-height: 1.9;
+            line-height: 1.55;
             font-weight: 700;
+        }
+        .phrase-text {
+            display: inline-flex;
+            min-height: 2rem;
+            align-items: center;
         }
         .swap-word {
             position: relative;
-            display: inline-block;
-            min-width: 10.5ch;
-            min-height: 1.4em;
-            vertical-align: bottom;
+            display: inline-flex;
+            align-items: center;
+            min-width: 11ch;
+            min-height: 2rem;
             color: #ddd6fe;
         }
         .swap-word.short {
-            min-width: 7.5ch;
+            min-width: 8.5ch;
         }
         .swap-word.long {
-            min-width: 14.5ch;
+            min-width: 15.5ch;
+        }
+        .swap-word.medium {
+            min-width: 12.5ch;
         }
         .swap-word span {
             position: absolute;
             left: 0;
-            top: 0;
+            top: 50%;
+            transform: translateY(-50%);
             opacity: 0;
             max-width: 0;
             overflow: hidden;
             white-space: nowrap;
             border-right: 2px solid #a78bfa;
-            animation: wordCycle 9s infinite;
+            animation: wordCycle 15s infinite;
         }
         .swap-word span:nth-child(2) {
-            animation-delay: 3s;
+            animation-delay: 5s;
         }
         .swap-word span:nth-child(3) {
-            animation-delay: 6s;
+            animation-delay: 10s;
         }
         @keyframes wordCycle {
             0% { opacity: 0; max-width: 0; }
-            6% { opacity: 1; max-width: 0; }
-            16% { opacity: 1; max-width: 18ch; }
-            28% { opacity: 1; max-width: 18ch; }
-            34% { opacity: 0; max-width: 18ch; }
+            5% { opacity: 1; max-width: 0; }
+            13% { opacity: 1; max-width: 18ch; }
+            27% { opacity: 1; max-width: 18ch; }
+            33% { opacity: 0; max-width: 18ch; }
             100% { opacity: 0; max-width: 0; }
         }
         .explore-grid {
@@ -537,50 +555,54 @@ def render_guided_exploration_guide():
                 """
                 <div class="explore-panel">
                     <div class="explore-kicker">Build your own question</div>
-                    <div class="animated-question">
-                        Which
-                        <span class="swap-word short">
-                            <span>region</span>
-                            <span>category</span>
-                            <span>segment</span>
-                        </span>
-                        had the
-                        <span class="swap-word short">
-                            <span>highest</span>
-                            <span>lowest</span>
-                            <span>largest</span>
-                        </span>
-                        <span class="swap-word short">
-                            <span>sales</span>
-                            <span>profit</span>
-                            <span>quantity</span>
-                        </span>
-                        in
-                        <span class="swap-word short">
-                            <span>2021</span>
-                            <span>2020</span>
-                            <span>2022</span>
-                        </span>?
-                    </div>
-                    <div class="animated-question">
-                        Compare
-                        <span class="swap-word">
-                            <span>sales</span>
-                            <span>profit</span>
-                            <span>discount</span>
-                        </span>
-                        for
-                        <span class="swap-word long">
-                            <span>Technology</span>
-                            <span>Furniture</span>
-                            <span>Office Supplies</span>
-                        </span>
-                        and
-                        <span class="swap-word long">
-                            <span>Furniture</span>
-                            <span>Office Supplies</span>
-                            <span>Technology</span>
-                        </span>.
+                    <div class="animated-question-stack">
+                        <div class="animated-question-row">
+                            <span class="phrase-text">Which</span>
+                            <span class="swap-word medium">
+                                <span>region</span>
+                                <span>category</span>
+                                <span>segment</span>
+                            </span>
+                            <span class="phrase-text">had the</span>
+                            <span class="swap-word short">
+                                <span>highest</span>
+                                <span>lowest</span>
+                                <span>largest</span>
+                            </span>
+                            <span class="swap-word short">
+                                <span>sales</span>
+                                <span>profit</span>
+                                <span>quantity</span>
+                            </span>
+                            <span class="phrase-text">in</span>
+                            <span class="swap-word short">
+                                <span>2021</span>
+                                <span>2020</span>
+                                <span>2022</span>
+                            </span>
+                            <span class="phrase-text">?</span>
+                        </div>
+                        <div class="animated-question-row">
+                            <span class="phrase-text">Compare</span>
+                            <span class="swap-word short">
+                                <span>sales</span>
+                                <span>profit</span>
+                                <span>discount</span>
+                            </span>
+                            <span class="phrase-text">for</span>
+                            <span class="swap-word long">
+                                <span>Technology</span>
+                                <span>Furniture</span>
+                                <span>Office Supplies</span>
+                            </span>
+                            <span class="phrase-text">and</span>
+                            <span class="swap-word long">
+                                <span>Furniture</span>
+                                <span>Office Supplies</span>
+                                <span>Technology</span>
+                            </span>
+                            <span class="phrase-text">.</span>
+                        </div>
                     </div>
                     <div class="explore-grid">
                         <div class="explore-card"><strong>Change the metric</strong><br><span>sales</span> can become profit, quantity, discount, or returned orders.</div>
