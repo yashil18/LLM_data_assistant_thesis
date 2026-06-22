@@ -129,48 +129,45 @@ def _apply_action_button_styles():
         }
         .animated-question-stack {
             display: grid;
-            gap: 0.7rem;
+            gap: 0.45rem;
             margin-bottom: 1rem;
+            overflow-x: auto;
+            padding-bottom: 0.2rem;
         }
         .animated-question-row {
-            display: flex;
-            flex-wrap: wrap;
+            display: grid;
             align-items: center;
-            gap: 0.45rem;
+            column-gap: 0.48rem;
             color: #f8fafc;
             font-size: 1.02rem;
-            line-height: 1.55;
             font-weight: 700;
+            min-width: max-content;
+        }
+        .question-row-one {
+            grid-template-columns: auto 12ch auto 9.5ch 9ch auto 7ch auto;
+        }
+        .question-row-two {
+            grid-template-columns: auto 9ch auto 15.5ch auto 15.5ch auto;
         }
         .phrase-text {
-            display: inline-flex;
-            min-height: 2rem;
-            align-items: center;
+            display: block;
+            line-height: 2.3rem;
+            white-space: nowrap;
         }
         .swap-word {
             position: relative;
-            display: inline-flex;
-            align-items: center;
-            min-width: 11ch;
-            min-height: 2rem;
+            display: block;
+            min-width: 100%;
+            height: 2.3rem;
             color: #ddd6fe;
-        }
-        .swap-word.short {
-            min-width: 8.5ch;
-        }
-        .swap-word.long {
-            min-width: 15.5ch;
-        }
-        .swap-word.medium {
-            min-width: 12.5ch;
         }
         .swap-word span {
             position: absolute;
             left: 0;
-            top: 50%;
-            transform: translateY(-50%);
+            top: 0;
             opacity: 0;
             max-width: 0;
+            line-height: 2.3rem;
             overflow: hidden;
             white-space: nowrap;
             border-right: 2px solid #a78bfa;
@@ -556,7 +553,7 @@ def render_guided_exploration_guide():
                 <div class="explore-panel">
                     <div class="explore-kicker">Build your own question</div>
                     <div class="animated-question-stack">
-                        <div class="animated-question-row">
+                        <div class="animated-question-row question-row-one">
                             <span class="phrase-text">Which</span>
                             <span class="swap-word medium">
                                 <span>region</span>
@@ -582,7 +579,7 @@ def render_guided_exploration_guide():
                             </span>
                             <span class="phrase-text">?</span>
                         </div>
-                        <div class="animated-question-row">
+                        <div class="animated-question-row question-row-two">
                             <span class="phrase-text">Compare</span>
                             <span class="swap-word short">
                                 <span>sales</span>
