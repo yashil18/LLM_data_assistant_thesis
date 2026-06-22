@@ -234,6 +234,18 @@ When generating SQL queries for the SQLite database, ensure the following:
 - Use double quotes or square brackets for column names that contain spaces.
 - Do not enclose column names in single quotes.
 - Use functions like strftime correctly by applying them directly to column names.
+- When answering questions about returned orders, first select distinct returned order IDs from the Returns table before joining to Orders. The Returns table can contain repeated Order ID rows, and the Orders table can contain multiple rows for one Order ID.
+- For returned-order count plus sales questions, do NOT use COUNT(*) after joining to Orders. Use COUNT(DISTINCT r."Order ID") for the number of returned orders and SUM(o."Sales") for the sales value.
+- Correct returned-order pattern:
+WITH returned_orders AS (
+    SELECT DISTINCT "Order ID"
+    FROM Returns
+    WHERE "Returned" = 'Yes'
+)
+SELECT COUNT(DISTINCT r."Order ID") AS distinct_returned_orders,
+       SUM(o."Sales") AS total_returned_sales
+FROM returned_orders r
+JOIN Orders o ON r."Order ID" = o."Order ID";
 For example:
 To query the total sales and profit for the year 2021 where the category is 'Office Supplies', use the following format:
 SELECT SUM(Sales) AS Total_Sales, SUM(Profit) AS Total_Profit FROM Orders WHERE Category = 'Office Supplies' AND strftime('%Y', "Order Date") = '2021';
