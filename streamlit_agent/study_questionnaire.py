@@ -110,6 +110,87 @@ def _apply_action_button_styles():
             margin-top: 0.55rem;
             line-height: 1.65;
         }
+        .explore-panel {
+            border: 1px solid rgba(167, 139, 250, 0.55);
+            border-radius: 0.8rem;
+            padding: 1.15rem;
+            margin: 0.9rem 0 1.1rem 0;
+            background:
+                radial-gradient(circle at top left, rgba(124, 58, 237, 0.28), transparent 34%),
+                linear-gradient(135deg, rgba(49, 46, 129, 0.42), rgba(15, 23, 42, 0.52));
+        }
+        .explore-kicker {
+            color: #c4b5fd;
+            font-size: 0.88rem;
+            font-weight: 800;
+            letter-spacing: 0.02rem;
+            margin-bottom: 0.55rem;
+            text-transform: uppercase;
+        }
+        .animated-question {
+            color: #f8fafc;
+            font-size: 1.02rem;
+            line-height: 1.9;
+            font-weight: 700;
+        }
+        .swap-word {
+            position: relative;
+            display: inline-block;
+            min-width: 10.5ch;
+            min-height: 1.4em;
+            vertical-align: bottom;
+            color: #ddd6fe;
+        }
+        .swap-word.short {
+            min-width: 7.5ch;
+        }
+        .swap-word.long {
+            min-width: 14.5ch;
+        }
+        .swap-word span {
+            position: absolute;
+            left: 0;
+            top: 0;
+            opacity: 0;
+            max-width: 0;
+            overflow: hidden;
+            white-space: nowrap;
+            border-right: 2px solid #a78bfa;
+            animation: wordCycle 9s infinite;
+        }
+        .swap-word span:nth-child(2) {
+            animation-delay: 3s;
+        }
+        .swap-word span:nth-child(3) {
+            animation-delay: 6s;
+        }
+        @keyframes wordCycle {
+            0% { opacity: 0; max-width: 0; }
+            6% { opacity: 1; max-width: 0; }
+            16% { opacity: 1; max-width: 18ch; }
+            28% { opacity: 1; max-width: 18ch; }
+            34% { opacity: 0; max-width: 18ch; }
+            100% { opacity: 0; max-width: 0; }
+        }
+        .explore-grid {
+            display: grid;
+            gap: 0.7rem;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            margin-top: 0.9rem;
+        }
+        .explore-card {
+            border: 1px solid rgba(148, 163, 184, 0.28);
+            border-radius: 0.65rem;
+            padding: 0.85rem;
+            background: rgba(2, 6, 23, 0.24);
+        }
+        .explore-card strong {
+            color: #bfdbfe;
+        }
+        .explore-card span {
+            color: #c4b5fd;
+            font-weight: 800;
+        }
         [class*="st-key-explanation_controls_"] button {
             background: #174a4d !important;
             border: 1px solid #2dd4bf !important;
@@ -452,19 +533,67 @@ def render_guided_exploration_guide():
                 "information that exists in the Superstore dataset."
             )
 
-            st.markdown("**Example 1**")
-            st.code("Which region had the highest sales in 2021?", language="text")
             st.markdown(
                 """
-                You can change:
-                - **highest** -> lowest
-                - **sales** -> profit, quantity, discount
-                - **region** -> category, sub-category, segment
-                - **2021** -> 2019, 2020, 2021, 2022
-                """
+                <div class="explore-panel">
+                    <div class="explore-kicker">Build your own question</div>
+                    <div class="animated-question">
+                        Which
+                        <span class="swap-word short">
+                            <span>region</span>
+                            <span>category</span>
+                            <span>segment</span>
+                        </span>
+                        had the
+                        <span class="swap-word short">
+                            <span>highest</span>
+                            <span>lowest</span>
+                            <span>largest</span>
+                        </span>
+                        <span class="swap-word short">
+                            <span>sales</span>
+                            <span>profit</span>
+                            <span>quantity</span>
+                        </span>
+                        in
+                        <span class="swap-word short">
+                            <span>2021</span>
+                            <span>2020</span>
+                            <span>2022</span>
+                        </span>?
+                    </div>
+                    <div class="animated-question">
+                        Compare
+                        <span class="swap-word">
+                            <span>sales</span>
+                            <span>profit</span>
+                            <span>discount</span>
+                        </span>
+                        for
+                        <span class="swap-word long">
+                            <span>Technology</span>
+                            <span>Furniture</span>
+                            <span>Office Supplies</span>
+                        </span>
+                        and
+                        <span class="swap-word long">
+                            <span>Furniture</span>
+                            <span>Office Supplies</span>
+                            <span>Technology</span>
+                        </span>.
+                    </div>
+                    <div class="explore-grid">
+                        <div class="explore-card"><strong>Change the metric</strong><br><span>sales</span> can become profit, quantity, discount, or returned orders.</div>
+                        <div class="explore-card"><strong>Change the group</strong><br><span>region</span> can become category, segment, state, or sub-category.</div>
+                        <div class="explore-card"><strong>Change the value</strong><br><span>Furniture</span> can become Technology or Office Supplies.</div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
-            st.markdown("**Example 2**")
+            st.markdown("**Example questions you can adapt**")
+            st.code("Which region had the highest sales in 2021?", language="text")
             st.code(
                 "Compare sales and profit for Technology and Furniture.",
                 language="text",
@@ -472,9 +601,11 @@ def render_guided_exploration_guide():
             st.markdown(
                 """
                 You can change:
-                - **sales and profit** -> sales, profit, quantity, discount
+                - **highest** -> lowest
+                - **sales** -> profit, quantity, discount, returned orders
+                - **region** -> category, sub-category, segment, state
                 - **Technology and Furniture** -> Office Supplies, Technology, Furniture
-                - **categories** -> regions, segments, sub-categories
+                - **2021** -> 2019, 2020, 2021, 2022
                 """
             )
 
