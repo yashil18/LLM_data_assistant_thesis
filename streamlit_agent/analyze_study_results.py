@@ -44,13 +44,8 @@ PRE_ITEMS = {
 
 COMMENT_QUESTION_LABELS = {
     "OPEN_TRUST": "Trust or distrust reason",
-    "OPEN_UNCERTAINTY": "Uncertainty moment",
-    "OPEN_SATISFACTION": "Satisfaction reason",
-    "OPEN_EXPLANATION_FEATURE": "Most helpful explanation feature",
-    "OPEN_TRUST_FEATURE": "Explanation feature influencing trust",
-    "OPEN_GUIDED_EXPLORATION": "Guided exploration likes or dislikes",
-    "OPEN_EXPLORATION_FREEDOM": "Perceived limits during own question",
-    "OPEN_OWN_QUESTION": "Chosen own question and reason",
+    "OPEN_EXPLANATION_FEATURE": "Explanation feature that made a difference",
+    "OPEN_GUIDED_EXPLORATION": "Guided exploration experience",
     "OPEN_IMPROVEMENT": "Improvement suggestion",
 }
 

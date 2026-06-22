@@ -300,23 +300,12 @@ GUIDED_EXPLORATION_ITEMS = {
 
 OPEN_QUESTIONS = {
     "OPEN_TRUST": "What specifically made you trust or distrust the assistant's answers?",
-    "OPEN_UNCERTAINTY": "Describe a moment when you were uncertain whether to rely on an answer.",
-    "OPEN_SATISFACTION": "What contributed most to your satisfaction or dissatisfaction?",
     "OPEN_EXPLANATION_FEATURE": (
-        "Which specific part of the explanation did you find most helpful, and why? "
-        "For example, you may refer to the written explanation, SQL reasoning, or animated reasoning path if it was available."
-    ),
-    "OPEN_TRUST_FEATURE": (
-        "Which specific feature or part of the explanation influenced your trust in the answer the most, and why?"
+        "Which specific feature or part of the explanation made the biggest difference for you, and why? "
+        "For example, you may refer to the written explanation, SQL reasoning, animated reasoning path, or another visible feature."
     ),
     "OPEN_GUIDED_EXPLORATION": (
-        "What did you like or dislike about the guided exploration part of the study?"
-    ),
-    "OPEN_EXPLORATION_FREEDOM": (
-        "Did you feel limited when asking your own question? If yes, in what way?"
-    ),
-    "OPEN_OWN_QUESTION": (
-        "What kind of question did you choose to ask during guided exploration, and why?"
+        "How did you experience the guided exploration part of the study?"
     ),
     "OPEN_IMPROVEMENT": "What would need to change before you would use this assistant for a real data-analysis task?",
 }
