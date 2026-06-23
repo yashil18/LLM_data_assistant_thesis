@@ -46,12 +46,7 @@ import subprocess
 import sys
 import uuid
 import openai
-from assistant_runtime import (
-    SQL_AGENT_PREFIX,
-    SQL_AGENT_SUFFIX,
-    format_sql_explanation,
-    load_sql_database,
-)
+from assistant_runtime import load_sql_database
 from study_questionnaire import (
     apply_soft_theme,
     render_dataset_viewer,
@@ -64,6 +59,7 @@ from study_storage import (
     initialize_interactions_database,
     insert_interaction,
     update_explanation_clicked as mark_explanation_clicked,
+    update_interaction_explanation,
 )
 
 
@@ -316,11 +312,6 @@ suffix = """I should look at the tables in the database to see what I can query.
 For each step I take, I should explain in simple, natural language why I am taking that step and how it helps in answering the question.
 """
 
-# Use the shorter cloud-optimized prompt. The detailed legacy text above is
-# retained for reference, but is not sent to the model.
-prefix = SQL_AGENT_PREFIX
-suffix = SQL_AGENT_SUFFIX
-
 # Creating the prompt structure with system, human, and AI messages, and incorporating prefix and suffix
 messages = [
     SystemMessagePromptTemplate.from_template(prefix),
@@ -342,9 +333,7 @@ llm = ChatOpenAI(
     base_url=openai_base_url,
     model=model_name,
     temperature=0,
-    streaming=False,
-    timeout=60,
-    max_retries=2,
+    streaming=True,
 )
 
 # Function to read Excel file into SQLite file-based database
@@ -376,11 +365,10 @@ toolkit = SQLDatabaseToolkit(db=db, llm=llm)
 agent = create_sql_agent(
     llm=llm,
     toolkit=toolkit,
-    verbose=False,
+    verbose=True,
     agent_type="openai-tools",
     prompt=prompt,
     agent_executor_kwargs={"return_intermediate_steps": True},
-    max_iterations=6,
 )
 
 
@@ -404,39 +392,6 @@ if "messages" not in st.session_state:
 def handle_explanation_click(interaction_id):
     update_explanation_clicked(session_id, interaction_id)
     st.session_state[f"expander_{interaction_id}"] = True
-
-
-# === 4. CHAT INTERFACE LOGIC ===
-# Handles user input, invokes the agent, and displays responses.
-
-# Display all messages from the session state
-
-
-if treatment == 2:    # Show explanation button
-    for msg in st.session_state.get("messages", []):
-        if "expander" in msg:
-            interaction_id = msg.get("interaction_id")
-            if st.session_state.get(f"expander_{interaction_id}", False):
-                with st.expander(msg["expander"], expanded=True):
-                    st.write(msg["content"])
-            else:
-                if st.button(
-                    "See explanation",
-                    key=f"button_{interaction_id}",
-                    on_click=lambda id=interaction_id: handle_explanation_click(id),
-                ):
-                    st.session_state[f"expander_{interaction_id}"] = True
-                    with st.expander(msg["expander"], expanded=True):
-                        st.write(msg["content"])
-        else:
-            st.chat_message(msg["role"]).write(msg["content"])
-else:  # Show explanation always expanded
-    for msg in st.session_state.get("messages", []):
-        if "expander" in msg:
-            with st.expander(msg.get("expander", "See explanation"), expanded=False):
-                st.write(msg["content"])
-        else:
-            st.chat_message(msg["role"]).write(msg["content"])
 
 
 # Function to execute SQL queries every time
@@ -543,6 +498,56 @@ def explain_intermediate_steps(intermediate_steps):
     return message
 
 
+def get_detailed_explanation(message):
+    """Generate the original detailed explanation only when it is requested."""
+    if message.get("content"):
+        return message["content"]
+
+    raw_steps = message.get("raw_steps", "")
+    if not raw_steps:
+        return "**The agent does not provide any further explanation for its response.**"
+
+    with st.spinner(text="Generating detailed explanation..."):
+        explanation = explain_intermediate_steps(raw_steps)
+
+    message["content"] = explanation
+    update_interaction_explanation(
+        session_id,
+        message.get("interaction_id"),
+        explanation,
+    )
+    return explanation
+
+
+# === 4. CHAT INTERFACE LOGIC ===
+# The answer is displayed first. The original detailed explanation is generated
+# only when the participant requests it.
+if treatment == 2:
+    for msg in st.session_state.get("messages", []):
+        if "expander" in msg:
+            interaction_id = msg.get("interaction_id")
+            if st.session_state.get(f"expander_{interaction_id}", False):
+                explanation = get_detailed_explanation(msg)
+                with st.expander(msg["expander"], expanded=True):
+                    st.write(explanation)
+            else:
+                st.button(
+                    "See explanation",
+                    key=f"button_{interaction_id}",
+                    on_click=lambda id=interaction_id: handle_explanation_click(id),
+                )
+        else:
+            st.chat_message(msg["role"]).write(msg["content"])
+else:
+    for msg in st.session_state.get("messages", []):
+        if "expander" in msg:
+            explanation = get_detailed_explanation(msg)
+            with st.expander(msg.get("expander", "See explanation"), expanded=True):
+                st.write(explanation)
+        else:
+            st.chat_message(msg["role"]).write(msg["content"])
+
+
 # Get user query from the chat input
 user_query = st.chat_input(placeholder="Ask me anything from the database!")
 
@@ -558,9 +563,18 @@ if user_query:
     st.session_state.messages.append({"role": "user", "content": user_query})
     st.chat_message("user").write(user_query)
 
-    # Keep only a compact amount of prior conversation. The current question is
-    # passed separately to the agent and must not also be duplicated in history.
-    truncated_history = truncate_messages(msgs.messages, 2000)
+    # Preserve the original conversation-history behavior.
+    msgs.add_user_message(user_query)
+    max_total_tokens = 14600
+    reserved_tokens = 1000
+    prompt_tokens = count_tokens(
+        msgs.messages + [type("msg", (object,), {"content": user_query})()]
+    )
+    max_history_tokens = max_total_tokens - reserved_tokens
+    if prompt_tokens > max_total_tokens:
+        truncated_history = truncate_messages(msgs.messages, max_history_tokens)
+    else:
+        truncated_history = msgs.messages
 
     with st.spinner(text="Analyzing the database..."):
         # Get the assistant's response using your agent
@@ -580,14 +594,14 @@ if user_query:
     st.session_state.messages.append({"role": "assistant", "content": response_content})
     st.chat_message("assistant").write(response_content)
 
-    # Save this completed exchange for possible follow-up questions.
-    msgs.add_user_message(user_query)
+    # Save AI response in history.
     msgs.add_ai_message(response_content)
 
-    # Build the explanation locally. This avoids a second LLM request.
+    # Preserve the original detailed-explanation input, but generate the final
+    # wording only after the participant clicks the explanation button.
     inter_steps = response["intermediate_steps"]
-    prettified_inter_steps = format_sql_explanation(inter_steps)
-    simplified_intermediate_steps = prettified_inter_steps
+    prettified_inter_steps = prettify_intermediate_steps(inter_steps)
+    simplified_intermediate_steps = None
 
     explanation_button_displayed_time = None
     explanation_clicked = None
@@ -603,20 +617,17 @@ if user_query:
                 {
                     "role": "assistant",
                     "expander": "See explanation",
-                    "content": simplified_intermediate_steps,
+                    "content": None,
+                    "raw_steps": prettified_inter_steps,
                     "interaction_id": question_id,
                 }
             )
 
-            # Display intermediate steps with a button to see the explanation
-            if st.button(
+            st.button(
                 "See explanation",
                 key=f"button_{question_id}",
                 on_click=lambda id=question_id: handle_explanation_click(id),
-            ):
-                st.session_state[f"expander_{question_id}"] = True
-                with st.expander("See explanation", expanded=True):
-                    st.write(simplified_intermediate_steps)
+            )
         else:
             # Display message if no intermediate steps are provided
             no_explanation_message = (
@@ -645,14 +656,18 @@ if user_query:
                 {
                     "role": "assistant",
                     "expander": "See explanation",
-                    "content": simplified_intermediate_steps,
+                    "content": None,
+                    "raw_steps": prettified_inter_steps,
                     "interaction_id": question_id,
                 }
             )
 
             explanation_displayed_time = pd.Timestamp.now()
 
-            # Display intermediate steps with expander
+            simplified_intermediate_steps = explain_intermediate_steps(
+                prettified_inter_steps
+            )
+            st.session_state.messages[-1]["content"] = simplified_intermediate_steps
             with st.expander("See explanation", expanded=True):
                 st.write(simplified_intermediate_steps)
         else:
@@ -685,7 +700,9 @@ if user_query:
         user_query,
         response_content,
         prettified_inter_steps,
-        simplified_intermediate_steps if inter_steps else no_explanation_message,
+        simplified_intermediate_steps or prettified_inter_steps
+        if inter_steps
+        else no_explanation_message,
         user_query_sent_time,
         response_displayed_time,
         explanation_button_displayed_time,

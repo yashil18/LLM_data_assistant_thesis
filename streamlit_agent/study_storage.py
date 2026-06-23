@@ -272,6 +272,27 @@ def update_explanation_clicked(session_id, interaction_id):
         )
 
 
+def update_interaction_explanation(session_id, interaction_id, explanation):
+    """Save an explanation that was generated after the answer was displayed."""
+    initialize_interactions_database()
+    with get_study_engine().begin() as connection:
+        connection.execute(
+            text(
+                """
+                UPDATE interactions
+                SET simplified_intermediate_steps = :explanation,
+                    explanation_displayed_time = CURRENT_TIMESTAMP
+                WHERE session_id = :session_id AND id = :interaction_id
+                """
+            ),
+            {
+                "session_id": session_id,
+                "interaction_id": interaction_id,
+                "explanation": explanation,
+            },
+        )
+
+
 def upsert_study_session(session_id, participant_id, assistant_version, consent_version):
     initialize_questionnaire_database()
     with get_study_engine().begin() as connection:

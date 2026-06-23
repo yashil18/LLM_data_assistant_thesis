@@ -47,12 +47,7 @@ import subprocess
 import sys
 import uuid
 import openai
-from assistant_runtime import (
-    SQL_AGENT_PREFIX,
-    SQL_AGENT_SUFFIX,
-    format_sql_explanation,
-    load_sql_database,
-)
+from assistant_runtime import load_sql_database
 from study_questionnaire import (
     apply_soft_theme,
     render_dataset_viewer,
@@ -65,6 +60,7 @@ from study_storage import (
     initialize_interactions_database,
     insert_interaction,
     update_explanation_clicked as mark_explanation_clicked,
+    update_interaction_explanation,
 )
 from knowledge_graph import (
     get_kg_animation_html,
@@ -323,11 +319,6 @@ suffix = """I should look at the tables in the database to see what I can query.
 For each step I take, I should explain in simple, natural language why I am taking that step and how it helps in answering the question.
 """
 
-# Use the shorter cloud-optimized prompt. The detailed legacy text above is
-# retained for reference, but is not sent to the model.
-prefix = SQL_AGENT_PREFIX
-suffix = SQL_AGENT_SUFFIX
-
 # Creating the prompt structure with system, human, and AI messages, and incorporating prefix and suffix
 messages = [
     SystemMessagePromptTemplate.from_template(prefix),
@@ -349,9 +340,7 @@ llm = ChatOpenAI(
     base_url=openai_base_url,
     model=model_name,
     temperature=0,
-    streaming=False,
-    timeout=60,
-    max_retries=2,
+    streaming=True,
 )
 
 # Function to read Excel file into SQLite file-based database
@@ -383,11 +372,10 @@ toolkit = SQLDatabaseToolkit(db=db, llm=llm)
 agent = create_sql_agent(
     llm=llm,
     toolkit=toolkit,
-    verbose=False,
+    verbose=True,
     agent_type="openai-tools",
     prompt=prompt,
     agent_executor_kwargs={"return_intermediate_steps": True},
-    max_iterations=6,
 )
 
 
@@ -413,7 +401,9 @@ def handle_explanation_click(interaction_id, explanation_type="written"):
     st.session_state[f"{explanation_type}_explanation_{interaction_id}"] = True
 
 
-def display_kg_explanation_controls(interaction_id, content, animation_html, show_all=False):
+def display_kg_explanation_controls(message, show_all=False):
+    interaction_id = message.get("interaction_id")
+    animation_html = message.get("animation_html")
     show_animation = show_all or st.session_state.get(
         f"animation_explanation_{interaction_id}", False
     )
@@ -449,38 +439,9 @@ def display_kg_explanation_controls(interaction_id, content, animation_html, sho
             components.html(animation_html, height=730, scrolling=False)
 
     if show_written:
+        content = get_detailed_kg_explanation(message)
         with st.expander("Written explanation", expanded=True):
             st.markdown(content)
-
-
-# === 4. CHAT INTERFACE LOGIC ===
-# Handles user input, invokes the agent, and displays responses.
-
-# Display all messages from the session state
-
-
-if treatment == 2:    # Show explanation button
-    for msg in st.session_state.get("messages", []):
-        if "expander" in msg:
-            interaction_id = msg.get("interaction_id")
-            display_kg_explanation_controls(
-                interaction_id,
-                msg["content"],
-                msg.get("animation_html"),
-            )
-        else:
-            st.chat_message(msg["role"]).write(msg["content"])
-else:  # Show explanation always expanded
-    for msg in st.session_state.get("messages", []):
-        if "expander" in msg:
-            display_kg_explanation_controls(
-                msg.get("interaction_id"),
-                msg["content"],
-                msg.get("animation_html"),
-                show_all=True,
-            )
-        else:
-            st.chat_message(msg["role"]).write(msg["content"])
 
 
 # Function to execute SQL queries every time
@@ -587,6 +548,51 @@ def explain_intermediate_steps(intermediate_steps):
     return message
 
 
+def get_detailed_kg_explanation(message):
+    """Generate the original detailed SQL explanation only when requested."""
+    if message.get("content"):
+        return message["content"]
+
+    raw_steps = message.get("raw_steps", "")
+    kg_explanation = message.get("kg_explanation", "")
+    if not raw_steps:
+        return "**The agent does not provide any further explanation for its response.**"
+
+    with st.spinner(text="Generating detailed explanation..."):
+        sql_explanation = explain_intermediate_steps(raw_steps)
+
+    explanation = (
+        "### Knowledge graph reasoning\n\n"
+        + kg_explanation
+        + "\n\n### SQL reasoning\n\n"
+        + sql_explanation
+    )
+    message["content"] = explanation
+    update_interaction_explanation(
+        session_id,
+        message.get("interaction_id"),
+        explanation,
+    )
+    return explanation
+
+
+# === 4. CHAT INTERFACE LOGIC ===
+# The answer and animation remain immediate. The original detailed written
+# explanation is generated only when the participant requests it.
+if treatment == 2:
+    for msg in st.session_state.get("messages", []):
+        if "expander" in msg:
+            display_kg_explanation_controls(msg)
+        else:
+            st.chat_message(msg["role"]).write(msg["content"])
+else:
+    for msg in st.session_state.get("messages", []):
+        if "expander" in msg:
+            display_kg_explanation_controls(msg, show_all=True)
+        else:
+            st.chat_message(msg["role"]).write(msg["content"])
+
+
 # Get user query from the chat input
 user_query = st.chat_input(placeholder="Ask me anything from the database!")
 
@@ -602,9 +608,18 @@ if user_query:
     st.session_state.messages.append({"role": "user", "content": user_query})
     st.chat_message("user").write(user_query)
 
-    # Keep only a compact amount of prior conversation. The current question is
-    # passed separately to the agent and must not also be duplicated in history.
-    truncated_history = truncate_messages(msgs.messages, 2000)
+    # Preserve the original conversation-history behavior.
+    msgs.add_user_message(user_query)
+    max_total_tokens = 14600
+    reserved_tokens = 1000
+    prompt_tokens = count_tokens(
+        msgs.messages + [type("msg", (object,), {"content": user_query})()]
+    )
+    max_history_tokens = max_total_tokens - reserved_tokens
+    if prompt_tokens > max_total_tokens:
+        truncated_history = truncate_messages(msgs.messages, max_history_tokens)
+    else:
+        truncated_history = msgs.messages
 
     with st.spinner(text="Analyzing the database..."):
         # Get the assistant's response using your agent
@@ -637,21 +652,16 @@ Original user question:
     st.session_state.messages.append({"role": "assistant", "content": response_content})
     st.chat_message("assistant").write(response_content)
 
-    # Save this completed exchange for possible follow-up questions.
-    msgs.add_user_message(user_query)
+    # Save AI response in history.
     msgs.add_ai_message(response_content)
 
-    # Build both explanations locally. This avoids a second LLM request.
+    # Preserve the original detailed-explanation input. The KG explanation and
+    # animation are local and immediate; the SQL wording is generated on click.
     inter_steps = response["intermediate_steps"]
-    prettified_inter_steps = format_sql_explanation(inter_steps)
+    prettified_inter_steps = prettify_intermediate_steps(inter_steps)
     kg_explanation = get_kg_explanation(user_query)
     kg_animation_html = get_kg_animation_html(user_query)
-    simplified_intermediate_steps = (
-        "### Knowledge graph reasoning\n\n"
-        + kg_explanation
-        + "\n\n### SQL reasoning\n\n"
-        + prettified_inter_steps
-    )
+    simplified_intermediate_steps = None
 
     explanation_button_displayed_time = None
     explanation_clicked = None
@@ -663,21 +673,17 @@ Original user question:
         explanation_button_displayed_time = pd.Timestamp.now()
         if inter_steps:
             # Update session state with simplified steps
-            st.session_state.messages.append(
-                {
-                    "role": "assistant",
-                    "expander": "See explanation",
-                    "content": simplified_intermediate_steps,
-                    "interaction_id": question_id,
-                    "animation_html": kg_animation_html,
-                }
-            )
-
-            display_kg_explanation_controls(
-                question_id,
-                simplified_intermediate_steps,
-                kg_animation_html,
-            )
+            explanation_message = {
+                "role": "assistant",
+                "expander": "See explanation",
+                "content": None,
+                "raw_steps": prettified_inter_steps,
+                "kg_explanation": kg_explanation,
+                "interaction_id": question_id,
+                "animation_html": kg_animation_html,
+            }
+            st.session_state.messages.append(explanation_message)
+            display_kg_explanation_controls(explanation_message)
         else:
             # Display message if no intermediate steps are provided
             no_explanation_message = (
@@ -692,29 +698,27 @@ Original user question:
                     "animation_html": None,
                 }
             )
-            display_kg_explanation_controls(question_id, no_explanation_message, None)
+            display_kg_explanation_controls(st.session_state.messages[-1])
     else:
         if inter_steps:
             # Update session state with simplified steps
-            st.session_state.messages.append(
-                {
-                    "role": "assistant",
-                    "expander": "See explanation",
-                    "content": simplified_intermediate_steps,
-                    "interaction_id": question_id,
-                    "animation_html": kg_animation_html,
-                }
-            )
+            explanation_message = {
+                "role": "assistant",
+                "expander": "See explanation",
+                "content": None,
+                "raw_steps": prettified_inter_steps,
+                "kg_explanation": kg_explanation,
+                "interaction_id": question_id,
+                "animation_html": kg_animation_html,
+            }
+            st.session_state.messages.append(explanation_message)
 
             explanation_displayed_time = pd.Timestamp.now()
 
-            # Display the KG animation first, followed by the written explanation.
-            display_kg_explanation_controls(
-                question_id,
-                simplified_intermediate_steps,
-                kg_animation_html,
-                show_all=True,
+            simplified_intermediate_steps = get_detailed_kg_explanation(
+                explanation_message
             )
+            display_kg_explanation_controls(explanation_message, show_all=True)
         else:
             # Display message if no intermediate steps are provided
             no_explanation_message = (
@@ -733,10 +737,7 @@ Original user question:
             explanation_displayed_time = pd.Timestamp.now()
 
             display_kg_explanation_controls(
-                question_id,
-                no_explanation_message,
-                None,
-                show_all=True,
+                st.session_state.messages[-1], show_all=True
             )
 
     # === 5. LOGGING INTERACTIONS ===
@@ -750,7 +751,15 @@ Original user question:
         user_query,
         response_content,
         prettified_inter_steps,
-        simplified_intermediate_steps if inter_steps else no_explanation_message,
+        simplified_intermediate_steps
+        or (
+            "### Knowledge graph reasoning\n\n"
+            + kg_explanation
+            + "\n\n### SQL reasoning\n\n"
+            + prettified_inter_steps
+        )
+        if inter_steps
+        else no_explanation_message,
         user_query_sent_time,
         response_displayed_time,
         explanation_button_displayed_time,
