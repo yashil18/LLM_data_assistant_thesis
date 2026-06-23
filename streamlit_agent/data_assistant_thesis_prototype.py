@@ -46,6 +46,12 @@ import subprocess
 import sys
 import uuid
 import openai
+from assistant_runtime import (
+    SQL_AGENT_PREFIX,
+    SQL_AGENT_SUFFIX,
+    format_sql_explanation,
+    load_sql_database,
+)
 from study_questionnaire import (
     apply_soft_theme,
     render_dataset_viewer,
@@ -310,6 +316,11 @@ suffix = """I should look at the tables in the database to see what I can query.
 For each step I take, I should explain in simple, natural language why I am taking that step and how it helps in answering the question.
 """
 
+# Use the shorter cloud-optimized prompt. The detailed legacy text above is
+# retained for reference, but is not sent to the model.
+prefix = SQL_AGENT_PREFIX
+suffix = SQL_AGENT_SUFFIX
+
 # Creating the prompt structure with system, human, and AI messages, and incorporating prefix and suffix
 messages = [
     SystemMessagePromptTemplate.from_template(prefix),
@@ -321,19 +332,20 @@ messages = [
 
 prompt = ChatPromptTemplate.from_messages(messages)
 
-# Specify the model name gpt-4o-mini in ChatOpenAI
+# Specify the model used by the SQL agent.
 openai_base_url = st.secrets.get("openai_base_url", None)
 model_name = st.secrets.get("model_name", "gpt-4o-mini")
-chain = prompt | ChatOpenAI(api_key=openai_api_key, base_url=openai_base_url, model=model_name)
-chain_with_history = RunnableWithMessageHistory(
-    chain,
-    lambda session_id: msgs,
-    input_messages_key="input",
-    history_messages_key="history",
-)
 
 # Setup agent for SQL
-llm = ChatOpenAI(api_key=openai_api_key, base_url=openai_base_url, model=model_name, temperature=0, streaming=True)
+llm = ChatOpenAI(
+    api_key=openai_api_key,
+    base_url=openai_base_url,
+    model=model_name,
+    temperature=0,
+    streaming=False,
+    timeout=60,
+    max_retries=2,
+)
 
 # Function to read Excel file into SQLite file-based database
 @st.cache_resource(ttl="2h")
@@ -358,16 +370,17 @@ def excel_to_sqlite(file_path):
 
 # Read the Excel file from the project folder
 file_path = Path("streamlit_agent/(US)Sample-Superstore.xlsx")
-db = excel_to_sqlite(file_path)  # Load the Excel file into the SQLite file-based database
+db = load_sql_database("database.db", file_path)
 
 toolkit = SQLDatabaseToolkit(db=db, llm=llm)
 agent = create_sql_agent(
     llm=llm,
     toolkit=toolkit,
-    verbose=True,
+    verbose=False,
     agent_type="openai-tools",
     prompt=prompt,
     agent_executor_kwargs={"return_intermediate_steps": True},
+    max_iterations=6,
 )
 
 
@@ -545,23 +558,9 @@ if user_query:
     st.session_state.messages.append({"role": "user", "content": user_query})
     st.chat_message("user").write(user_query)
 
-    # Save user query in history
-    msgs.add_user_message(user_query)
-
-    # Calculate current tokens and truncate message history if necessary
-    max_total_tokens = 14600  # Maximum tokens allowed by the model
-    reserved_tokens = 1000  # Reserve tokens for the current query and response
-    prompt_tokens = count_tokens(
-        msgs.messages + [type("msg", (object,), {"content": user_query})()]
-    )
-    max_history_tokens = max_total_tokens - reserved_tokens
-
-    # Ensure prompt_tokens does not exceed max_total_tokens
-    if prompt_tokens > max_total_tokens:
-        max_history_tokens = max_total_tokens - reserved_tokens
-        truncated_history = truncate_messages(msgs.messages, max_history_tokens)
-    else:
-        truncated_history = msgs.messages
+    # Keep only a compact amount of prior conversation. The current question is
+    # passed separately to the agent and must not also be duplicated in history.
+    truncated_history = truncate_messages(msgs.messages, 2000)
 
     with st.spinner(text="Analyzing the database..."):
         # Get the assistant's response using your agent
@@ -581,16 +580,14 @@ if user_query:
     st.session_state.messages.append({"role": "assistant", "content": response_content})
     st.chat_message("assistant").write(response_content)
 
-    # Save AI response in history
+    # Save this completed exchange for possible follow-up questions.
+    msgs.add_user_message(user_query)
     msgs.add_ai_message(response_content)
 
-    # Prettify intermediate steps
+    # Build the explanation locally. This avoids a second LLM request.
     inter_steps = response["intermediate_steps"]
-    prettified_inter_steps = prettify_intermediate_steps(inter_steps)
-
-    # Add a spinner for generating explanation
-    with st.spinner(text="Generating explanation..."):
-        simplified_intermediate_steps = explain_intermediate_steps(prettified_inter_steps)
+    prettified_inter_steps = format_sql_explanation(inter_steps)
+    simplified_intermediate_steps = prettified_inter_steps
 
     explanation_button_displayed_time = None
     explanation_clicked = None

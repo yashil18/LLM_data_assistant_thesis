@@ -104,6 +104,7 @@ def _execute_schema_statement(engine, sql, table_to_verify=None):
         raise
 
 
+@lru_cache(maxsize=1)
 def initialize_interactions_database():
     engine = get_study_engine()
     _execute_schema_statement(
@@ -141,6 +142,7 @@ def initialize_interactions_database():
     _ensure_columns(engine, "interactions", INTERACTION_COLUMNS)
 
 
+@lru_cache(maxsize=1)
 def initialize_questionnaire_database():
     engine = get_study_engine()
     _execute_schema_statement(
