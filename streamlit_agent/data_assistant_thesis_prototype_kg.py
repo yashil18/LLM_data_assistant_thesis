@@ -437,7 +437,7 @@ def display_kg_explanation_controls(interaction_id, content, animation_html, sho
 
     if show_written:
         with st.expander("Written explanation", expanded=True):
-            st.write(content)
+            st.markdown(content)
 
 
 # === 4. CHAT INTERFACE LOGIC ===

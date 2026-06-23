@@ -101,6 +101,28 @@ USER_FRIENDLY_RELATIONSHIPS = {
 }
 
 
+REGION_VALUES = ["central", "east", "south", "west"]
+
+
+def _find_year(question_text):
+    match = re.search(r"\b(19|20)\d{2}\b", question_text)
+    return match.group(0) if match else None
+
+
+def _find_region_value(question_text):
+    for region in REGION_VALUES:
+        if re.search(rf"\b{re.escape(region)}\b", question_text):
+            return region.title()
+    return None
+
+
+def _find_product_value(question_text):
+    for value in VALUE_TO_NODES:
+        if value in question_text:
+            return value.title()
+    return None
+
+
 def find_relevant_nodes(question):
     text = question.lower()
     relevant_nodes = set()
@@ -165,39 +187,110 @@ def get_kg_context(question):
 
 def get_kg_explanation(question):
     nodes = find_relevant_nodes(question)
-    edges = find_relevant_edges(nodes)
+    node_set = set(nodes)
+    question_text = question.lower()
+    year = _find_year(question_text)
+    region_value = _find_region_value(question_text)
+    product_value = _find_product_value(question_text)
 
     explanation = [
-        "I used the knowledge graph as a concept map before querying the database.",
+        "I used the knowledge graph to translate the question into the dataset before creating the SQL query.",
         "",
-        "Business concepts used:",
+        "**1. Words from the question mapped to the dataset**",
     ]
 
-    for node in nodes:
-        mapping = USER_FRIENDLY_MAPPINGS.get(node, KG_NODES[node])
-        explanation.append(f"- {mapping}")
+    mappings = []
 
-    if edges:
-        explanation.append("")
-        explanation.append("How the data was connected:")
-        for source, relation, target, edge_explanation in edges:
-            readable_edge = USER_FRIENDLY_RELATIONSHIPS.get(
-                (source, relation, target),
-                edge_explanation,
-            )
-            explanation.append(f"- {readable_edge}")
+    if "Sales" in node_set:
+        mappings.append(
+            ":blue[sales] -> `Orders.Sales` because this column stores sales amounts."
+        )
+    if "Profit" in node_set:
+        mappings.append(
+            ":green[profit] -> `Orders.Profit` because this column stores profit amounts."
+        )
+    if "Quantity" in node_set:
+        mappings.append(
+            ":orange[quantity] -> `Orders.Quantity` because this column stores the number of sold items."
+        )
+    if "Discount" in node_set:
+        mappings.append(
+            ":orange[discount] -> `Orders.Discount` because this column stores discount values."
+        )
+    if "Date" in node_set:
+        time_label = year if year else "time period"
+        mappings.append(
+            f":violet[{time_label}] -> `Orders.Order Date` because the time filter is taken from the order date."
+        )
+    if "Product" in node_set:
+        product_label = product_value if product_value else "product or category"
+        mappings.append(
+            f":orange[{product_label}] -> `Orders.Category`, `Orders.Sub-Category`, or `Orders.Product Name` because product groups are stored there."
+        )
+    if "Region" in node_set:
+        region_label = region_value if region_value else "region"
+        mappings.append(
+            f":violet[{region_label}] -> `Orders.Region` and `People.Region` because region is used in both tables."
+        )
+    if "People" in node_set:
+        mappings.append(
+            ":blue[regional manager] -> `People.Regional Manager` because manager names are stored in the People table."
+        )
+    if "Returned Order" in node_set:
+        mappings.append(
+            ":red[returned orders] -> `Returns.Order ID` because returned orders are identified by their order ID."
+        )
+    if "Returns" in node_set:
+        mappings.append(
+            ":red[return status] -> `Returns.Returned` because this column marks whether an order was returned."
+        )
+
+    if not mappings:
+        mappings.append(
+            "`Orders` table -> the main table for sales, profit, products, customers, regions, and dates."
+        )
+
+    explanation.extend(f"- {mapping}" for mapping in mappings)
+
+    explanation.append("")
+    explanation.append("**2. How the tables or columns were connected**")
+
+    if {"Orders", "People", "Region"}.issubset(node_set):
+        explanation.append(
+            "- I connected `Orders.Region` with `People.Region` so the sales from a region can be linked to the responsible manager."
+        )
+    elif {"Orders", "Returns", "Returned Order"}.issubset(node_set):
+        explanation.append(
+            "- I connected `Returns.Order ID` with `Orders.Order ID` so returned orders can be linked to their sales values."
+        )
+    else:
+        explanation.append(
+            "- No table join was needed because the relevant values are already stored in the `Orders` table."
+        )
 
     if "Returned Order" in nodes:
         explanation.append("")
-        explanation.append("Traceability note:")
+        explanation.append("**3. Traceability check**")
         explanation.append(
-            "- Returned orders are counted by unique Order ID first, so repeated return rows do not multiply the result."
+            "- Returned orders are counted by unique `Order ID` first, so repeated order lines do not multiply the returned-order count."
+        )
+    elif {"People", "Region"}.issubset(node_set):
+        explanation.append("")
+        explanation.append("**3. Traceability check**")
+        explanation.append(
+            "- The same region value is used on both sides of the join, so the manager and the sales refer to the same business region."
+        )
+    else:
+        explanation.append("")
+        explanation.append("**3. Traceability check**")
+        explanation.append(
+            "- The answer is based on the mapped columns above, so the path from question wording to database values is visible."
         )
 
     explanation.append("")
-    explanation.append("Why this helps traceability:")
+    explanation.append("**Why this helps**")
     explanation.append(
-        "- It shows how words in the question were mapped to concrete tables, columns, and relationships before the SQL query was executed."
+        "- It shows which parts of the question were matched to exact tables and columns before the SQL query was executed."
     )
 
     return "\n".join(explanation)
