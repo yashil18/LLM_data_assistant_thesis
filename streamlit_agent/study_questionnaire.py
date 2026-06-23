@@ -243,10 +243,6 @@ def _apply_action_button_styles():
     )
 
 TRUST_ITEMS = {
-    "TBB1": (
-        "benevolence",
-        "I believe that the data assistant would act in my best interest.",
-    ),
     "TBB2": (
         "benevolence",
         "If I required help, the data assistant would do its best to help me.",
@@ -264,14 +260,9 @@ TRUST_ITEMS = {
         "integrity",
         "The data assistant would keep its commitments when providing information.",
     ),
-    "TBI4": ("integrity", "The data assistant is sincere and genuine."),
     "TBC1": (
         "competence",
         "The data assistant is competent and effective in answering questions about the dataset.",
-    ),
-    "TBC2": (
-        "competence",
-        "The data assistant performs its role of supporting data analysis very well.",
     ),
     "TBC3": (
         "competence",
@@ -294,8 +285,6 @@ GUIDED_EXPLORATION_ITEMS = {
     "GE1": "I enjoyed using the assistant during the guided exploration.",
     "GE2": "I felt comfortable asking my own question about the dataset.",
     "GE3": "The assistant gave me enough freedom to explore the dataset.",
-    "GE4": "The dataset viewer helped me formulate my own question.",
-    "GE5": "The assistant supported me in exploring the data beyond the required tasks.",
 }
 
 OPEN_QUESTIONS = {

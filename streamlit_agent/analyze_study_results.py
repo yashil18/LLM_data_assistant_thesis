@@ -16,21 +16,18 @@ from study_storage import read_study_table
 
 
 TRUST_ITEMS = {
-    "TBB1": "trust_benevolence",
     "TBB2": "trust_benevolence",
     "TBB3": "trust_benevolence",
     "TBI1": "trust_integrity",
     "TBI2": "trust_integrity",
     "TBI3": "trust_integrity",
-    "TBI4": "trust_integrity",
     "TBC1": "trust_competence",
-    "TBC2": "trust_competence",
     "TBC3": "trust_competence",
     "TBC4": "trust_competence",
 }
 
 SATISFACTION_ITEMS = {"SAT1", "SAT2", "SAT3", "SAT4"}
-GUIDED_EXPLORATION_ITEMS = {"GE1", "GE2", "GE3", "GE4", "GE5"}
+GUIDED_EXPLORATION_ITEMS = {"GE1", "GE2", "GE3"}
 
 PRE_ITEMS = {
     "AGE_GROUP": "age_group",
