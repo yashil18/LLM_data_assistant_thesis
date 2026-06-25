@@ -47,7 +47,7 @@ import subprocess
 import sys
 import uuid
 import openai
-from assistant_runtime import load_sql_database
+from assistant_runtime import load_sql_database, run_fixed_study_task
 from study_questionnaire import (
     apply_soft_theme,
     render_dataset_viewer,
@@ -155,10 +155,11 @@ render_questionnaire_flow(
     question_count=st.session_state["question_counter"],
 )
 participant_id = st.session_state["participant_id"]
+assistant_busy = st.session_state.get("assistant_busy", False)
 st.caption("Use the assistant to complete the data-analysis tasks provided by the researcher.")
-render_assigned_tasks_guide()
-render_dataset_viewer()
-render_guided_exploration_guide()
+render_assigned_tasks_guide(disabled=assistant_busy)
+render_dataset_viewer(disabled=assistant_busy)
+render_guided_exploration_guide(disabled=assistant_busy)
 
 # ======== CHANGE THIS PARAMETER IF NEEDED ========
 # Manually set the treatment condition for the chat interface.
@@ -401,7 +402,7 @@ def handle_explanation_click(interaction_id, explanation_type="written"):
     st.session_state[f"{explanation_type}_explanation_{interaction_id}"] = True
 
 
-def display_kg_explanation_controls(message, show_all=False):
+def display_kg_explanation_controls(message, show_all=False, disabled=False):
     interaction_id = message.get("interaction_id")
     animation_html = message.get("animation_html")
     show_animation = show_all or st.session_state.get(
@@ -422,6 +423,7 @@ def display_kg_explanation_controls(message, show_all=False):
                         id, "animation"
                     ),
                     use_container_width=True,
+                    disabled=disabled,
                 )
         if not show_written:
             with button_columns[-1]:
@@ -432,6 +434,7 @@ def display_kg_explanation_controls(message, show_all=False):
                         id, "written"
                     ),
                     use_container_width=True,
+                    disabled=disabled,
                 )
 
     if animation_html and show_animation:
@@ -582,7 +585,7 @@ def get_detailed_kg_explanation(message):
 if treatment == 2:
     for msg in st.session_state.get("messages", []):
         if "expander" in msg:
-            display_kg_explanation_controls(msg)
+            display_kg_explanation_controls(msg, disabled=assistant_busy)
         else:
             st.chat_message(msg["role"]).write(msg["content"])
 else:
@@ -594,39 +597,57 @@ else:
 
 
 # Get user query from the chat input
-user_query = st.chat_input(placeholder="Ask me anything from the database!")
+user_query = st.chat_input(
+    placeholder=(
+        "The assistant is preparing your answer..."
+        if assistant_busy
+        else "Ask me anything from the database!"
+    ),
+    disabled=assistant_busy,
+)
 
-if user_query:
-    # Record timestamp for when the user query is sent
-    user_query_sent_time = pd.Timestamp.now()
-
+if user_query and not assistant_busy:
     # Increment the question counter for the session
     st.session_state["question_counter"] += 1
     question_id = st.session_state["question_counter"]
 
-    # Append user query to the session state
     st.session_state.messages.append({"role": "user", "content": user_query})
-    st.chat_message("user").write(user_query)
+    st.session_state["pending_query"] = {
+        "query": user_query,
+        "question_id": question_id,
+        "sent_time": pd.Timestamp.now(),
+    }
+    st.session_state["assistant_busy"] = True
+    st.rerun()
 
-    # Preserve the original conversation-history behavior.
+pending_query = st.session_state.get("pending_query")
+if pending_query:
+    user_query = pending_query["query"]
+    question_id = pending_query["question_id"]
+    user_query_sent_time = pending_query["sent_time"]
+
     msgs.add_user_message(user_query)
     max_total_tokens = 14600
     reserved_tokens = 1000
-    prompt_tokens = count_tokens(
-        msgs.messages + [type("msg", (object,), {"content": user_query})()]
-    )
+    prompt_tokens = count_tokens(msgs.messages)
     max_history_tokens = max_total_tokens - reserved_tokens
     if prompt_tokens > max_total_tokens:
         truncated_history = truncate_messages(msgs.messages, max_history_tokens)
     else:
         truncated_history = msgs.messages
 
+    fast_result = run_fixed_study_task(user_query)
     with st.spinner(text="Analyzing the database..."):
-        # Get the assistant's response using your agent
-        try:
-            kg_context = get_kg_context(user_query)
+        if fast_result:
+            response = {
+                "output": fast_result["output"],
+                "intermediate_steps": [],
+            }
+        else:
+            try:
+                kg_context = get_kg_context(user_query)
 
-            kg_enhanced_input = f"""
+                kg_enhanced_input = f"""
 Use the following knowledge graph context as additional guidance for selecting tables, columns, and joins.
 Use it to answer the original user question more accurately.
 Do not show the knowledge graph context in the final answer unless the user asks for it.
@@ -637,10 +658,12 @@ Original user question:
 {user_query}
 """
 
-            response = agent.invoke({"input": kg_enhanced_input, "history": truncated_history})
-        except Exception as e:
-            st.error(f"Error: {e}")
-            response = {"output": str(e), "intermediate_steps": []}
+                response = agent.invoke(
+                    {"input": kg_enhanced_input, "history": truncated_history}
+                )
+            except Exception as e:
+                st.error(f"Error: {e}")
+                response = {"output": str(e), "intermediate_steps": []}
 
     # Extract response content
     response_content = response["output"]
@@ -658,10 +681,26 @@ Original user question:
     # Preserve the original detailed-explanation input. The KG explanation and
     # animation are local and immediate; the SQL wording is generated on click.
     inter_steps = response["intermediate_steps"]
-    prettified_inter_steps = prettify_intermediate_steps(inter_steps)
+    prettified_inter_steps = (
+        fast_result["explanation"]
+        if fast_result
+        else prettify_intermediate_steps(inter_steps)
+    )
+    has_explanation = bool(prettified_inter_steps)
     kg_explanation = get_kg_explanation(user_query)
     kg_animation_html = get_kg_animation_html(user_query)
+    fast_full_explanation = (
+        "### Knowledge graph reasoning\n\n"
+        + kg_explanation
+        + "\n\n### SQL reasoning\n\n"
+        + fast_result["explanation"]
+        if fast_result
+        else None
+    )
     simplified_intermediate_steps = None
+    no_explanation_message = (
+        "**The agent does not provide any further explanation for its response.**"
+    )
 
     explanation_button_displayed_time = None
     explanation_clicked = None
@@ -671,24 +710,21 @@ Original user question:
 
     if treatment == 2:
         explanation_button_displayed_time = pd.Timestamp.now()
-        if inter_steps:
+        if has_explanation:
             # Update session state with simplified steps
             explanation_message = {
                 "role": "assistant",
                 "expander": "See explanation",
-                "content": None,
+                "content": fast_full_explanation,
                 "raw_steps": prettified_inter_steps,
                 "kg_explanation": kg_explanation,
                 "interaction_id": question_id,
                 "animation_html": kg_animation_html,
             }
             st.session_state.messages.append(explanation_message)
-            display_kg_explanation_controls(explanation_message)
+            display_kg_explanation_controls(explanation_message, disabled=True)
         else:
             # Display message if no intermediate steps are provided
-            no_explanation_message = (
-                "**The agent does not provide any further explanation for its response.**"
-            )
             st.session_state.messages.append(
                 {
                     "role": "assistant",
@@ -698,14 +734,16 @@ Original user question:
                     "animation_html": None,
                 }
             )
-            display_kg_explanation_controls(st.session_state.messages[-1])
+            display_kg_explanation_controls(
+                st.session_state.messages[-1], disabled=True
+            )
     else:
-        if inter_steps:
+        if has_explanation:
             # Update session state with simplified steps
             explanation_message = {
                 "role": "assistant",
                 "expander": "See explanation",
-                "content": None,
+                "content": fast_full_explanation,
                 "raw_steps": prettified_inter_steps,
                 "kg_explanation": kg_explanation,
                 "interaction_id": question_id,
@@ -721,9 +759,6 @@ Original user question:
             display_kg_explanation_controls(explanation_message, show_all=True)
         else:
             # Display message if no intermediate steps are provided
-            no_explanation_message = (
-                "**The agent does not provide any further explanation for its response.**"
-            )
             st.session_state.messages.append(
                 {
                     "role": "assistant",
@@ -758,7 +793,7 @@ Original user question:
             + "\n\n### SQL reasoning\n\n"
             + prettified_inter_steps
         )
-        if inter_steps
+        if has_explanation
         else no_explanation_message,
         user_query_sent_time,
         response_displayed_time,
@@ -767,5 +802,8 @@ Original user question:
         explanation_clicked,
         explanation_displayed_time,
     )
+    st.session_state.pop("pending_query", None)
+    st.session_state["assistant_busy"] = False
+    st.rerun()
 
 render_study_progress_footer(session_id, st.session_state["question_counter"])

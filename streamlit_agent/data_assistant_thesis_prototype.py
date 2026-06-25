@@ -46,7 +46,7 @@ import subprocess
 import sys
 import uuid
 import openai
-from assistant_runtime import load_sql_database
+from assistant_runtime import load_sql_database, run_fixed_study_task
 from study_questionnaire import (
     apply_soft_theme,
     render_dataset_viewer,
@@ -148,10 +148,11 @@ render_questionnaire_flow(
     question_count=st.session_state["question_counter"],
 )
 participant_id = st.session_state["participant_id"]
+assistant_busy = st.session_state.get("assistant_busy", False)
 st.caption("Use the assistant to complete the data-analysis tasks provided by the researcher.")
-render_assigned_tasks_guide()
-render_dataset_viewer()
-render_guided_exploration_guide()
+render_assigned_tasks_guide(disabled=assistant_busy)
+render_dataset_viewer(disabled=assistant_busy)
+render_guided_exploration_guide(disabled=assistant_busy)
 
 # ======== CHANGE THIS PARAMETER IF NEEDED ========
 # Manually set the treatment condition for the chat interface.
@@ -535,6 +536,7 @@ if treatment == 2:
                     "See explanation",
                     key=f"button_{interaction_id}",
                     on_click=lambda id=interaction_id: handle_explanation_click(id),
+                    disabled=assistant_busy,
                 )
         else:
             st.chat_message(msg["role"]).write(msg["content"])
@@ -549,40 +551,60 @@ else:
 
 
 # Get user query from the chat input
-user_query = st.chat_input(placeholder="Ask me anything from the database!")
+user_query = st.chat_input(
+    placeholder=(
+        "The assistant is preparing your answer..."
+        if assistant_busy
+        else "Ask me anything from the database!"
+    ),
+    disabled=assistant_busy,
+)
 
-if user_query:
-    # Record timestamp for when the user query is sent
-    user_query_sent_time = pd.Timestamp.now()
-
+if user_query and not assistant_busy:
     # Increment the question counter for the session
     st.session_state["question_counter"] += 1
     question_id = st.session_state["question_counter"]
 
-    # Append user query to the session state
     st.session_state.messages.append({"role": "user", "content": user_query})
-    st.chat_message("user").write(user_query)
+    st.session_state["pending_query"] = {
+        "query": user_query,
+        "question_id": question_id,
+        "sent_time": pd.Timestamp.now(),
+    }
+    st.session_state["assistant_busy"] = True
+    st.rerun()
 
-    # Preserve the original conversation-history behavior.
+pending_query = st.session_state.get("pending_query")
+if pending_query:
+    user_query = pending_query["query"]
+    question_id = pending_query["question_id"]
+    user_query_sent_time = pending_query["sent_time"]
+
     msgs.add_user_message(user_query)
     max_total_tokens = 14600
     reserved_tokens = 1000
-    prompt_tokens = count_tokens(
-        msgs.messages + [type("msg", (object,), {"content": user_query})()]
-    )
+    prompt_tokens = count_tokens(msgs.messages)
     max_history_tokens = max_total_tokens - reserved_tokens
     if prompt_tokens > max_total_tokens:
         truncated_history = truncate_messages(msgs.messages, max_history_tokens)
     else:
         truncated_history = msgs.messages
 
+    fast_result = run_fixed_study_task(user_query)
     with st.spinner(text="Analyzing the database..."):
-        # Get the assistant's response using your agent
-        try:
-            response = agent.invoke({"input": user_query, "history": truncated_history})
-        except Exception as e:
-            st.error(f"Error: {e}")
-            response = {"output": str(e), "intermediate_steps": []}
+        if fast_result:
+            response = {
+                "output": fast_result["output"],
+                "intermediate_steps": [],
+            }
+        else:
+            try:
+                response = agent.invoke(
+                    {"input": user_query, "history": truncated_history}
+                )
+            except Exception as e:
+                st.error(f"Error: {e}")
+                response = {"output": str(e), "intermediate_steps": []}
 
     # Extract response content
     response_content = response["output"]
@@ -600,8 +622,16 @@ if user_query:
     # Preserve the original detailed-explanation input, but generate the final
     # wording only after the participant clicks the explanation button.
     inter_steps = response["intermediate_steps"]
-    prettified_inter_steps = prettify_intermediate_steps(inter_steps)
+    prettified_inter_steps = (
+        fast_result["explanation"]
+        if fast_result
+        else prettify_intermediate_steps(inter_steps)
+    )
+    has_explanation = bool(prettified_inter_steps)
     simplified_intermediate_steps = None
+    no_explanation_message = (
+        "**The agent does not provide any further explanation for its response.**"
+    )
 
     explanation_button_displayed_time = None
     explanation_clicked = None
@@ -611,13 +641,13 @@ if user_query:
 
     if treatment == 2:
         explanation_button_displayed_time = pd.Timestamp.now()
-        if inter_steps:
+        if has_explanation:
             # Update session state with simplified steps
             st.session_state.messages.append(
                 {
                     "role": "assistant",
                     "expander": "See explanation",
-                    "content": None,
+                    "content": fast_result["explanation"] if fast_result else None,
                     "raw_steps": prettified_inter_steps,
                     "interaction_id": question_id,
                 }
@@ -627,12 +657,10 @@ if user_query:
                 "See explanation",
                 key=f"button_{question_id}",
                 on_click=lambda id=question_id: handle_explanation_click(id),
+                disabled=True,
             )
         else:
             # Display message if no intermediate steps are provided
-            no_explanation_message = (
-                "**The agent does not provide any further explanation for its response.**"
-            )
             st.session_state.messages.append(
                 {
                     "role": "assistant",
@@ -645,18 +673,19 @@ if user_query:
                 "See explanation",
                 key=f"button_{question_id}",
                 on_click=lambda id=question_id: handle_explanation_click(id),
+                disabled=True,
             ):
                 st.session_state[f"expander_{question_id}"] = True
                 with st.expander("See explanation", expanded=True):
                     st.write(no_explanation_message)
     else:
-        if inter_steps:
+        if has_explanation:
             # Update session state with simplified steps
             st.session_state.messages.append(
                 {
                     "role": "assistant",
                     "expander": "See explanation",
-                    "content": None,
+                    "content": fast_result["explanation"] if fast_result else None,
                     "raw_steps": prettified_inter_steps,
                     "interaction_id": question_id,
                 }
@@ -664,17 +693,16 @@ if user_query:
 
             explanation_displayed_time = pd.Timestamp.now()
 
-            simplified_intermediate_steps = explain_intermediate_steps(
-                prettified_inter_steps
+            simplified_intermediate_steps = (
+                fast_result["explanation"]
+                if fast_result
+                else explain_intermediate_steps(prettified_inter_steps)
             )
             st.session_state.messages[-1]["content"] = simplified_intermediate_steps
             with st.expander("See explanation", expanded=True):
                 st.write(simplified_intermediate_steps)
         else:
             # Display message if no intermediate steps are provided
-            no_explanation_message = (
-                "**The agent does not provide any further explanation for its response.**"
-            )
             st.session_state.messages.append(
                 {
                     "role": "assistant",
@@ -700,9 +728,11 @@ if user_query:
         user_query,
         response_content,
         prettified_inter_steps,
-        simplified_intermediate_steps or prettified_inter_steps
-        if inter_steps
-        else no_explanation_message,
+        (
+            simplified_intermediate_steps or prettified_inter_steps
+            if has_explanation
+            else no_explanation_message
+        ),
         user_query_sent_time,
         response_displayed_time,
         explanation_button_displayed_time,
@@ -710,5 +740,8 @@ if user_query:
         explanation_clicked,
         explanation_displayed_time,
     )
+    st.session_state.pop("pending_query", None)
+    st.session_state["assistant_busy"] = False
+    st.rerun()
 
 render_study_progress_footer(session_id, st.session_state["question_counter"])

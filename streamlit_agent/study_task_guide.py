@@ -3,7 +3,7 @@
 import streamlit as st
 
 
-def render_assigned_tasks_guide():
+def render_assigned_tasks_guide(disabled=False):
     """Show the required study tasks and acceptable rephrasings."""
     st.markdown(
         """
@@ -68,7 +68,11 @@ def render_assigned_tasks_guide():
         st.session_state["show_assigned_tasks"] = False
 
     with st.container(key="assigned_tasks_control"):
-        if st.button("Assigned tasks", key="toggle_assigned_tasks"):
+        if st.button(
+            "Assigned tasks",
+            key="toggle_assigned_tasks",
+            disabled=disabled,
+        ):
             st.session_state["show_assigned_tasks"] = not st.session_state[
                 "show_assigned_tasks"
             ]

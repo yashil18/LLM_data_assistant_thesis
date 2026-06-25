@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from study_storage import (
-    has_previous_pre_questionnaire,
+    get_previous_study_session,
     initialize_questionnaire_database,
     insert_questionnaire_responses,
     update_study_session,
@@ -407,7 +407,7 @@ def _render_dataset_preview_content(interactive=False):
                 )
 
 
-def render_dataset_viewer():
+def render_dataset_viewer(disabled=False):
     """Render an optional dataset viewer during the interaction phase."""
     _apply_action_button_styles()
 
@@ -415,7 +415,11 @@ def render_dataset_viewer():
         st.session_state["show_dataset_viewer"] = False
 
     with st.container(key="dataset_viewer_control"):
-        if st.button("View dataset", key="toggle_dataset_viewer"):
+        if st.button(
+            "View dataset",
+            key="toggle_dataset_viewer",
+            disabled=disabled,
+        ):
             st.session_state["show_dataset_viewer"] = not st.session_state[
                 "show_dataset_viewer"
             ]
@@ -504,7 +508,7 @@ def render_assigned_tasks_guide():
         )
 
 
-def render_guided_exploration_guide():
+def render_guided_exploration_guide(disabled=False):
     """Show examples that help participants formulate their own dataset questions."""
     _apply_action_button_styles()
 
@@ -512,7 +516,11 @@ def render_guided_exploration_guide():
         st.session_state["show_guided_exploration"] = False
 
     with st.container(key="guided_exploration_control"):
-        if st.button("Guided exploration ideas", key="toggle_guided_exploration"):
+        if st.button(
+            "Guided exploration ideas",
+            key="toggle_guided_exploration",
+            disabled=disabled,
+        ):
             st.session_state["show_guided_exploration"] = not st.session_state[
                 "show_guided_exploration"
             ]
@@ -744,20 +752,38 @@ def _render_identification(session_id, assistant_version):
             st.error("Please confirm all consent statements before continuing.")
         else:
             st.session_state["participant_id"] = normalized_code
-            upsert_study_session(
-                session_id,
+            previous_session = get_previous_study_session(
                 normalized_code,
                 assistant_version,
-                CONSENT_VERSION,
+                exclude_session_id=session_id,
             )
 
-            if has_previous_pre_questionnaire(normalized_code):
-                _update_session(
-                    session_id,
-                    pre_completed_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            if previous_session and previous_session["post_completed_at"]:
+                st.error(
+                    "This participant code has already completed this assistant "
+                    "version. Please contact the researcher for a new code."
                 )
-                st.session_state["study_phase"] = "interaction"
+                return
+
+            if previous_session:
+                st.session_state["session_id"] = previous_session["session_id"]
+                if previous_session["tasks_completed_at"]:
+                    st.session_state["study_phase"] = "post"
+                elif previous_session["pre_completed_at"]:
+                    st.session_state["study_phase"] = "interaction"
+                else:
+                    st.session_state["study_phase"] = "pre"
+                st.session_state["resume_notice"] = (
+                    "Your unfinished session was restored. You can continue "
+                    "from where you stopped."
+                )
             else:
+                upsert_study_session(
+                    session_id,
+                    normalized_code,
+                    assistant_version,
+                    CONSENT_VERSION,
+                )
                 st.session_state["study_phase"] = "pre"
             st.rerun()
 
@@ -1001,3 +1027,7 @@ def render_questionnaire_flow(assistant_version, session_id, question_count):
     if phase == "complete":
         _render_completion()
         st.stop()
+
+    resume_notice = st.session_state.pop("resume_notice", None)
+    if resume_notice:
+        st.info(resume_notice)

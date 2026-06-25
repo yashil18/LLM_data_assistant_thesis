@@ -394,6 +394,36 @@ def has_previous_pre_questionnaire(participant_id):
     return result is not None
 
 
+def get_previous_study_session(
+    participant_id,
+    assistant_version,
+    exclude_session_id=None,
+):
+    """Return the participant's latest matching session, if one exists."""
+    initialize_questionnaire_database()
+    with get_study_engine().connect() as connection:
+        row = connection.execute(
+            text(
+                """
+                SELECT session_id, pre_completed_at, tasks_completed_at,
+                       post_completed_at
+                FROM study_sessions
+                WHERE participant_id = :participant_id
+                  AND assistant_version = :assistant_version
+                  AND (:exclude_session_id IS NULL OR session_id <> :exclude_session_id)
+                ORDER BY started_at DESC
+                LIMIT 1
+                """
+            ),
+            {
+                "participant_id": participant_id,
+                "assistant_version": assistant_version,
+                "exclude_session_id": exclude_session_id,
+            },
+        ).mappings().fetchone()
+    return dict(row) if row else None
+
+
 def update_study_session(session_id, **fields):
     if not fields:
         return
