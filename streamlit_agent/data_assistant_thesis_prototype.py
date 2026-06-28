@@ -23,6 +23,7 @@ What to expect:
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import sqlite3
 from pathlib import Path
@@ -120,11 +121,93 @@ def save_interaction(
 # Function to update explanation clicked
 def update_explanation_clicked(session_id, interaction_id):
     mark_explanation_clicked(session_id, interaction_id)
+
+
+def render_scroll_helpers():
+    st.markdown(
+        """
+        <style>
+        .scroll-top-wrap {
+            display: flex;
+            justify-content: center;
+            margin: 2.2rem 0 7rem;
+        }
+        .scroll-top-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 46px;
+            padding: 0.7rem 1.15rem;
+            border: 1px solid rgba(96, 165, 250, 0.75);
+            border-radius: 10px;
+            background: linear-gradient(135deg, rgba(30, 64, 175, 0.78), rgba(15, 23, 42, 0.96));
+            color: #f8fafc !important;
+            font-weight: 700;
+            text-decoration: none !important;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25);
+        }
+        .scroll-top-button:hover {
+            border-color: rgba(147, 197, 253, 0.95);
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.88), rgba(30, 41, 59, 0.98));
+        }
+        .answer-scroll-anchor {
+            display: block;
+            height: 1px;
+            scroll-margin-top: 2rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_assistant_top_anchor():
+    st.markdown('<div id="assistant-top"></div>', unsafe_allow_html=True)
+
+
+def mark_answer_scroll_anchor():
+    st.markdown(
+        '<div class="answer-scroll-anchor" data-scroll-target="latest-answer"></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def scroll_to_latest_answer_if_needed():
+    if not st.session_state.pop("scroll_to_latest_answer", False):
+        return
+
+    components.html(
+        """
+        <script>
+        const parentDoc = window.parent.document;
+        window.setTimeout(() => {
+            const anchors = parentDoc.querySelectorAll('[data-scroll-target="latest-answer"]');
+            const target = anchors[anchors.length - 1];
+            if (target) {
+                target.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+        }, 250);
+        </script>
+        """,
+        height=0,
+    )
+
+
+def render_back_to_top_button():
+    st.markdown(
+        '''
+        <div class="scroll-top-wrap">
+            <a class="scroll-top-button" href="#assistant-top">Back to top</a>
+        </div>
+        ''',
+        unsafe_allow_html=True,
+    )
 # === 2. STREAMLIT APP STATE ===
 # Sets up session state: session_id, participant_id, question counter.
 # Streamlit app setup
 st.set_page_config(page_title="Data Assistant")
 apply_soft_theme()
+render_scroll_helpers()
 st.title("Data Assistant 📈")
 st.caption("Version A")
 st.info("Use this assistant to answer questions about the Superstore dataset.")
@@ -149,6 +232,7 @@ render_questionnaire_flow(
 )
 participant_id = st.session_state["participant_id"]
 assistant_busy = st.session_state.get("assistant_busy", False)
+render_assistant_top_anchor()
 st.caption("Use the assistant to complete the data-analysis tasks provided by the researcher.")
 render_assigned_tasks_guide(disabled=assistant_busy)
 render_dataset_viewer(disabled=assistant_busy)
@@ -539,6 +623,8 @@ if treatment == 2:
                     disabled=assistant_busy,
                 )
         else:
+            if msg["role"] == "assistant":
+                mark_answer_scroll_anchor()
             st.chat_message(msg["role"]).write(msg["content"])
 else:
     for msg in st.session_state.get("messages", []):
@@ -547,7 +633,12 @@ else:
             with st.expander(msg.get("expander", "See explanation"), expanded=True):
                 st.write(explanation)
         else:
+            if msg["role"] == "assistant":
+                mark_answer_scroll_anchor()
             st.chat_message(msg["role"]).write(msg["content"])
+
+
+scroll_to_latest_answer_if_needed()
 
 
 # Get user query from the chat input
@@ -614,6 +705,7 @@ if pending_query:
 
     # Append the assistant's response to the session state
     st.session_state.messages.append({"role": "assistant", "content": response_content})
+    mark_answer_scroll_anchor()
     st.chat_message("assistant").write(response_content)
 
     # Save AI response in history.
@@ -742,6 +834,8 @@ if pending_query:
     )
     st.session_state.pop("pending_query", None)
     st.session_state["assistant_busy"] = False
+    st.session_state["scroll_to_latest_answer"] = True
     st.rerun()
 
 render_study_progress_footer(session_id, st.session_state["question_counter"])
+render_back_to_top_button()
